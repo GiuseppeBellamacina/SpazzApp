@@ -3,8 +3,11 @@
 [![Python](https://img.shields.io/badge/Python-3.8%2B-blue)](https://python.org)
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.28%2B-red)](https://streamlit.io)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-SpazzApp-brightgreen)](https://spazzapp.streamlit.app)
 
 **SpazzApp** è un'applicazione web intelligente per la gestione automatica dei turni di pulizia domestici. Utilizza algoritmi avanzati per distribuire equamente le pulizie tra i coinquilini, garantendo rotazione delle stanze e bilanciamento del carico di lavoro.
+
+🚀 **[Prova l'app live su Streamlit Cloud](https://spazzapp.streamlit.app)** 🚀
 
 ![SpazzApp Demo](docs/demo-screenshot.png)
 
