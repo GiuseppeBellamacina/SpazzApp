@@ -9,7 +9,7 @@
 
 🚀 **[Prova l'app live su Streamlit Cloud](https://spazzapp.streamlit.app)** 🚀
 
-![SpazzApp Demo](docs/demo-screenshot.png)
+![SpazzApp Demo](assets/demo.png)
 
 ## ✨ Caratteristiche Principali
 
