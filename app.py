@@ -1,19 +1,31 @@
 """
 SpazzApp - Gestione Turni di Pulizia Intelligente
+Applicazione multipagina con Streamlit per la gestione intelligente dei turni di pulizia.
 """
 
-from src.ui.streamlit_app import create_app
+import streamlit as st
+from src.utils.constants import CSS_STYLES
 
-def main():
-    app = create_app()
-    app.run()
+# Configurazione della pagina principale
+st.set_page_config(
+    page_title="🏠 SpazzApp", 
+    page_icon="🧹", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
+# Applicazione stili CSS
+st.markdown(CSS_STYLES, unsafe_allow_html=True)
 
-if __name__ == "__main__":
-    main()
+# Configurazione delle pagine
+pages = {
+    "🏠 SpazzApp": [
+        st.Page("pages/configurazione.py", title="Configurazione", icon="⚙️"),
+        st.Page("pages/turni.py", title="Generazione Turni", icon="🎲"),
+        st.Page("pages/export.py", title="Export PNG", icon="📸")
+    ]
+}
 
-# TODO: se 2 persone lavorano lo stesso giorno, il png non le mostra entrambe (bug nella generazione immagine)
-# TODO: se ci sono 2 persone e 4 stanze, non le distribuisce bene (bug nella logica di assegnazione)
-# TODO: fare un config più bello con multipagina
-# TODO: non fare resettare pagina dopo il download dell'immagine
-# TODO: fare il deploy online
+# Navigazione
+pg = st.navigation(pages)
+pg.run()

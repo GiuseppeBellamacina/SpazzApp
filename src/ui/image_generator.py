@@ -220,26 +220,67 @@ class CalendarImageGenerator:
                                  week_index: int, n_weeks: int, cell_width: float,
                                  cell_height: float, color_map: Dict[str, str]):
         """Disegna le assegnazioni all'interno di una cella."""
-        display_lines = []
-        
+        if not assignments:
+            return
+            
+        # Raggruppa assegnazioni per persona
+        assignments_by_person = {}
         for assignment in assignments:
             person = assignment['person']
-            room = assignment['room']
-            date = assignment['date']
-            
+            if person not in assignments_by_person:
+                assignments_by_person[person] = []
+            assignments_by_person[person].append(assignment)
+        
+        display_lines = []
+        unique_people = list(assignments_by_person.keys())
+        
+        # Se una sola persona o "Nessuno disponibile"
+        if len(unique_people) == 1:
+            person = unique_people[0]
             if person == "Nessuno disponibile":
-                display_lines.append(f"X {room}")
+                for assignment in assignments_by_person[person]:
+                    room = assignment['room']
+                    display_lines.append(f"X {room}")
             else:
+                # Una persona, multiple stanze possibili
+                person_assignments = assignments_by_person[person]
                 display_lines.append(f"{person}")
-                display_lines.append(f"{room}")
-                display_lines.append(f"{date}")
+                for assignment in person_assignments:
+                    room = assignment['room']
+                    date = assignment['date']
+                    display_lines.append(f"{room}")
+                if person_assignments:
+                    display_lines.append(f"{person_assignments[0]['date']}")
+        else:
+            # Multiple persone nello stesso giorno
+            for person in unique_people:
+                if person == "Nessuno disponibile":
+                    continue
+                person_assignments = assignments_by_person[person]
+                display_lines.append(f"{person}")
+                # Mostra solo la prima stanza per persona per limitare testo
+                if person_assignments:
+                    display_lines.append(f"{person_assignments[0]['room']}")
+            
+            # Aggiungi data una volta sola
+            if assignments:
+                display_lines.append(f"{assignments[0]['date']}")
         
         if display_lines:
-            display_text = '\n'.join(display_lines[:4])  # Max 4 righe
+            display_text = '\n'.join(display_lines[:6])  # Max 6 righe per supportare multiple persone
             
-            # Colore basato sulla prima persona assegnata
-            first_person = assignments[0]['person']
-            color = color_map.get(first_person, '#ffffff')
+            # Gestione colore per multiple persone
+            if len(unique_people) == 1:
+                first_person = unique_people[0]
+                color = color_map.get(first_person, '#ffffff')
+            else:
+                # Multiple persone: usa un gradiente o colore misto
+                colors = [color_map.get(person, '#ffffff') for person in unique_people 
+                         if person != "Nessuno disponibile"]
+                if colors:
+                    color = colors[0]  # Usa il colore della prima persona per semplicità
+                else:
+                    color = '#ffffff'
             
             # Aggiungi sfondo colorato
             colored_rect = patches.Rectangle(
@@ -249,8 +290,17 @@ class CalendarImageGenerator:
             )
             ax.add_patch(colored_rect)
             
-            text_color = '#8B0000' if first_person == "Nessuno disponibile" else 'black'
-            font_size = 8 if len(display_lines) > 2 else 9
+            # Se ci sono multiple persone, aggiungi un bordo più spesso per evidenziare
+            if len(unique_people) > 1:
+                border_rect = patches.Rectangle(
+                    (day_index * cell_width + 0.02, (n_weeks - week_index - 1) * cell_height + 0.02),
+                    cell_width - 0.04, cell_height - 0.04,
+                    linewidth=2, edgecolor='#FF6B6B', facecolor='none'
+                )
+                ax.add_patch(border_rect)
+            
+            text_color = '#8B0000' if "Nessuno disponibile" in unique_people else 'black'
+            font_size = 7 if len(display_lines) > 4 else 8 if len(display_lines) > 2 else 9
             
             ax.text(
                 day_index * cell_width + cell_width/2,

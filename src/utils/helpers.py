@@ -56,38 +56,6 @@ def get_month_weeks(year: int, month: int) -> List[Tuple[datetime, datetime]]:
     return weeks
 
 
-def is_person_available(person: str, date: datetime, absences: Dict[str, List[Tuple[datetime, datetime]]]) -> bool:
-    """
-    Verifica se una persona è disponibile in una data specifica.
-    
-    Args:
-        person: Nome della persona
-        date: Data da verificare
-        absences: Dizionario con le assenze per persona (tuple di date di inizio e fine)
-        
-    Returns:
-        True se la persona è disponibile
-    """
-    if person not in absences:
-        return True
-    
-    for start_date, end_date in absences[person]:
-        if start_date <= date <= end_date:
-            return False
-    return True
-
-
-def format_date_italian(date: datetime) -> str:
-    """Formatta una data in formato italiano."""
-    italian_weekdays = {
-        0: "Lunedì", 1: "Martedì", 2: "Mercoledì", 3: "Giovedì",
-        4: "Venerdì", 5: "Sabato", 6: "Domenica"
-    }
-    
-    weekday_name = italian_weekdays[date.weekday()]
-    return f"{weekday_name} {date.day}/{date.month}"
-
-
 def calculate_workload_balance(assignments: Dict, people: List[str]) -> float:
     """
     Calcola il bilanciamento del carico di lavoro.

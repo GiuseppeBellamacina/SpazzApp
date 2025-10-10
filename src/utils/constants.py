@@ -17,17 +17,6 @@ STANZE_DEFAULT = ['Bagno', 'Cucina', 'Soggiorno', 'Camera']
 # Persone di default
 PERSONE_DEFAULT = ['Anna', 'Marco', 'Luca', 'Sofia']
 
-# Configurazione algoritmo
-ALGORITMO_CONFIG = {
-    'MAX_ITERAZIONI': 1000,
-    'PESO_BILANCIAMENTO': 0.5,
-    'PESO_DISTRIBUZIONE_GIORNI': 0.3,
-    'PESO_QUALITA_ASSEGNAZIONE': 0.2,
-    'PREFERENZA_FERIALI': True,
-    'EVITA_WEEKEND': True,
-    'SOGLIA_MIGLIORAMENTO': 0.01
-}
-
 # Configurazione PNG
 PNG_CONFIG = {
     'DPI': 300,

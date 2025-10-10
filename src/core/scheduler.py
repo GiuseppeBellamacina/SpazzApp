@@ -1,313 +1,522 @@
 """
 Scheduler principale per la gestione intelligente dei turni di pulizia.
+Utilizza oggetti strutturati per una distribuzione equa e rotazione ottimale.
 """
 
-import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import List, Dict, Tuple, Optional
 import pandas as pd
-import calendar
 
-from ..utils.constants import ALGORITMO_CONFIG
-from ..utils.helpers import (
-    get_month_weeks,
-    is_person_available,
-    format_date_italian
-)
+from ..utils.helpers import get_month_weeks
+from ..utils.constants import STANZE_DEFAULT
+from .models import Person, WeeklyAssignment, RoomAssignment, SchedulingState
 
 
 class CleaningScheduler:
     """Classe principale per la generazione intelligente dei turni di pulizia."""
     
     def __init__(self, rooms: Optional[List[str]] = None):
-        """
-        Inizializza lo scheduler.
-        
-        Args:
-            rooms: Lista delle stanze da gestire
-        """
-        self.rooms = rooms or ["Bagno", "Cucina", "Veranda", "Corridoio"]
+        """Inizializza lo scheduler con le stanze disponibili."""
+        self.rooms = rooms if rooms else STANZE_DEFAULT
+
+        # Mappatura giorni della settimana in italiano
         self.italian_weekdays = {
             0: "Lunedì", 1: "Martedì", 2: "Mercoledì", 3: "Giovedì",
             4: "Venerdì", 5: "Sabato", 6: "Domenica"
         }
-    
+
     def generate_schedule(self, people: List[str], year: int, month: int, 
                          absences: Dict[str, List[Tuple[datetime, datetime]]],
                          excluded_first_week: Optional[Dict[str, List[str]]] = None,
                          priority_first_week: Optional[List[str]] = None) -> pd.DataFrame:
         """
-        Genera il calendario dei turni con giorni specifici.
-        
-        Args:
-            people: Lista delle persone
-            year: Anno di riferimento
-            month: Mese di riferimento
-            absences: Dizionario con le assenze per persona
-            excluded_first_week: Stanze escluse per persona nella prima settimana
-            priority_first_week: Priorità stanze per la prima settimana
-            
-        Returns:
-            DataFrame con il piano completo
+        Genera il calendario dei turni usando oggetti strutturati per distribuzione ottimale.
         """
-        weeks = get_month_weeks(year, month)
-        schedule_data = []
+        print(f"\n=== INIZIO GENERAZIONE SCHEDULE CON OGGETTI ===")
+        print(f"Persone: {people}")
+        print(f"Anno/Mese: {year}/{month}")
+        print(f"Stanze: {self.rooms}")
         
-        # Inizializza i parametri opzionali
+        weeks = get_month_weeks(year, month)
+        
         if excluded_first_week is None:
             excluded_first_week = {}
         if priority_first_week is None:
             priority_first_week = self.rooms.copy()
         
-        # Traccia chi ha fatto cosa la settimana precedente
-        last_week_assignments = {}
+        # Crea oggetti Person per ogni persona
+        person_objects = []
+        for person_name in people:
+            person_obj = Person(person_name)
+            person_obj.initialize_rooms(self.rooms)
+            
+            # Converti assenze in lista di date
+            person_absences = []
+            if person_name in absences:
+                for absence_start, absence_end in absences[person_name]:
+                    current_date = absence_start.date()
+                    end_date = absence_end.date()
+                    while current_date <= end_date:
+                        person_absences.append(current_date)
+                        current_date += timedelta(days=1)
+            person_obj.absences = person_absences
+            
+            person_objects.append(person_obj)
         
-        # Traccia stanze non assegnate la settimana precedente (per dare priorità)
-        unassigned_last_week = set()
+        # Inizializza lo state del scheduling
+        scheduling_state = SchedulingState(person_objects, self.rooms)
         
-        # Traccia assegnazioni mensili per rotazione (evita ripetizioni stanza/persona nel mese)
-        monthly_assignments = {person: set() for person in people}
+        print(f"\n=== PERSONE INIZIALIZZATE ===")
+        for person in person_objects:
+            print(f"{person.name}: {len(person.absences)} giorni di assenza")
         
+        # Processa settimana per settimana
         for week_num, (week_start, week_end) in enumerate(weeks, 1):
-            # Analizza disponibilità per ogni persona in ogni giorno della settimana
-            person_available_days = {}
-            for person in people:
-                person_available_days[person] = []
-                for day_offset in range(7):
-                    check_date = week_start + timedelta(days=day_offset)
-                    if is_person_available(person, check_date, absences):
-                        weekday_name = self.italian_weekdays[check_date.weekday()]
-                        person_available_days[person].append((day_offset, check_date, weekday_name))
+            print(f"\n--- SETTIMANA {week_num}: {week_start.strftime('%d/%m')} - {week_end.strftime('%d/%m')} ---")
             
-            # Algoritmo di distribuzione intelligente della settimana
-            week_assignments = {}
-            room_day_assignments = {}
+            # Crea WeeklyAssignment per ogni persona
+            for person in person_objects:
+                weekly_assignment = WeeklyAssignment(
+                    week_number=week_num,
+                    week_start=week_start.date(),
+                    week_end=week_end.date()
+                )
+                person.weekly_data[week_num] = weekly_assignment
             
-            # Priorità giorni: evita weekend quando possibile
-            day_priorities = [0, 1, 2, 3, 4, 5, 6]  # Lun-Ven preferiti, poi weekend
+            # Trova persone disponibili questa settimana
+            available_people = []
+            for person in person_objects:
+                available_days = person.get_available_days_in_week(week_start.date(), week_end.date())
+                if available_days:
+                    available_people.append(person)
+                    print(f"{person.name}: {len(available_days)} giorni disponibili - {[d.strftime('%a %d') for d in available_days[:3]]}{'...' if len(available_days) > 3 else ''}")
             
-            # Ordine stanze per questa settimana con priorità per stanze non assegnate
-            if week_num == 1:
-                room_order = priority_first_week
-            else:
-                # Priorità a stanze non assegnate la settimana precedente
-                priority_rooms = list(unassigned_last_week)
-                remaining_rooms = [room for room in self.rooms if room not in unassigned_last_week]
-                room_order = priority_rooms + remaining_rooms
+            if not available_people:
+                print("Nessuna persona disponibile questa settimana")
+                continue
             
-            # Trova la migliore distribuzione settimanale
-            best_weekly_assignment = self._find_optimal_weekly_distribution(
-                people, person_available_days, room_order, week_num,
-                excluded_first_week, last_week_assignments, day_priorities,
-                self.italian_weekdays, week_start, monthly_assignments
+            # Assegna stanze per questa settimana usando il nuovo algoritmo
+            self._assign_week_with_objects(
+                available_people, week_num, excluded_first_week, scheduling_state
             )
+        
+        # Converti il risultato in DataFrame
+        schedule_data = []
+        for assignment in scheduling_state.assignments:
+            week_start = None
+            week_end = None
             
-            # Applica l'assegnazione ottimale
-            for room in room_order:
-                if room in best_weekly_assignment:
-                    person, (day_offset, date, weekday) = best_weekly_assignment[room]
-                    week_assignments[room] = person
-                    room_day_assignments[room] = (date, weekday)
-                else:
-                    # Nessuna assegnazione possibile per questa stanza
-                    week_assignments[room] = "Nessuno disponibile"
-                    fallback_date = week_start
-                    fallback_weekday = self.italian_weekdays[fallback_date.weekday()]
-                    room_day_assignments[room] = (fallback_date, fallback_weekday)
+            # Trova i limiti della settimana per questo assignment
+            for w_num, (w_start, w_end) in enumerate(weeks, 1):
+                if w_num == assignment.week_number:
+                    week_start = w_start
+                    week_end = w_end
+                    break
             
-            # Aggiorna tracciamento per la settimana successiva
-            last_week_assignments = week_assignments.copy()
-            
-            # Traccia stanze non assegnate per priorità settimana successiva
-            unassigned_last_week = {room for room, person in week_assignments.items()
-                                  if person == "Nessuno disponibile"}
-            
-            # Aggiorna il tracciamento delle assegnazioni mensili
-            for room, person in week_assignments.items():
-                if person not in ["Nessuno disponibile", "Non assegnato"]:
-                    monthly_assignments[person].add(room)
-            
-            # Aggiungi al dataframe con giorni specifici
-            for room in self.rooms:
-                assigned_date, assigned_weekday = room_day_assignments.get(room, (week_start, "Lunedì"))
-                schedule_data.append({
-                    'Settimana': f"Settimana {week_num}",
-                    'Periodo': f"{week_start.strftime('%d/%m')} - {week_end.strftime('%d/%m')}",
-                    'Stanza': room,
-                    'Persona': week_assignments.get(room, "Non assegnato"),
-                    'Data_Specifica': assigned_date,
-                    'Giorno_Settimana': assigned_weekday,
-                    'Data_Completa': f"{assigned_weekday} {assigned_date.strftime('%d/%m')}",
-                    'Data_Inizio': week_start,
-                    'Data_Fine': week_end
-                })
+            if week_start is None or week_end is None:
+                continue
+                
+            weekday_name = self.italian_weekdays[assignment.assignment_date.weekday()]
+            schedule_data.append({
+                'Settimana': f"Settimana {assignment.week_number}",
+                'Periodo': f"{week_start.strftime('%d/%m')} - {week_end.strftime('%d/%m')}",
+                'Stanza': assignment.room,
+                'Persona': assignment.person.name,
+                'Data_Specifica': assignment.assignment_date,
+                'Giorno_Settimana': weekday_name,
+                'Data_Completa': f"{weekday_name} {assignment.assignment_date.strftime('%d/%m')}",
+                'Data_Inizio': week_start,
+                'Data_Fine': week_end
+            })
+        
+        # Stampa riassunto finale
+        scheduling_state.print_summary()
         
         df = pd.DataFrame(schedule_data)
         # Ordina per data specifica per visualizzazione cronologica
         df = df.sort_values(['Data_Specifica', 'Stanza'], ascending=[True, True])
+        
+        print(f"\n=== FINE GENERAZIONE - TOTALE ASSEGNAZIONI: {len(schedule_data)} ===")
         return df
-    
-    def _find_optimal_weekly_distribution(self, people, person_available_days, room_order, week_num,
-                                        excluded_first_week, last_week_assignments, day_priorities,
-                                        italian_weekdays, week_start, monthly_assignments):
-        """Trova la distribuzione ottimale delle stanze nella settimana con approccio greedy intelligente."""
+
+    def _assign_week_with_objects(self, available_people: List[Person], week_number: int, 
+                                 excluded_first_week: Dict[str, List[str]], 
+                                 scheduling_state: SchedulingState):
+        """
+        Assegna le stanze per una settimana usando gli oggetti Person per distribuzione ottimale.
+        """
+        print(f"DEBUG: Assegno settimana {week_number} con {len(available_people)} persone")
         
-        # Crea lista di tutti i possibili slot (giorno, persona, stanza)
-        all_possible_assignments = []
+        num_rooms = len(self.rooms)
         
-        for room in room_order:
-            for person in people:
-                # Controlli di validità base
-                if not person_available_days[person]:
-                    continue
-                
-                # Esclusioni prima settimana
-                if week_num == 1 and person in excluded_first_week and room in excluded_first_week[person]:
-                    continue
-                
-                # Evita ripetizioni settimane consecutive
-                if room in last_week_assignments and last_week_assignments[room] == person:
-                    continue
-                
-                # Logica rotazione mensile: evita che una persona rifaccia la stessa stanza
-                # a meno che tutti gli altri DISPONIBILI l'abbiano già fatta
-                if room in monthly_assignments[person]:
-                    # Considera solo le persone effettivamente disponibili (non assenti)
-                    available_people = [p for p in people if p != person and person_available_days[p]]
-                    
-                    # Se non ci sono altre persone disponibili, permetti la ripetizione
-                    if not available_people:
-                        pass  # Continua con l'assegnazione
-                    else:
-                        # Controlla se tutte le altre persone disponibili hanno già fatto questa stanza
-                        all_available_others_done = all(room in monthly_assignments[other] 
-                                                      for other in available_people)
-                        if not all_available_others_done:
-                            continue  # Skip per favorire rotazione
-                
-                # Aggiungi ogni giorno disponibile per questa persona
-                for day_offset, date, weekday in person_available_days[person]:
-                    # Calcola punteggio per questa assegnazione
-                    score = self._calculate_assignment_score(person, day_offset, room, 
-                                                           person_available_days, day_priorities)
-                    all_possible_assignments.append((score, room, person, day_offset, date, weekday))
+        # Calcola target per questa settimana considerando il bilanciamento globale
+        person_targets = self._calculate_balanced_targets(available_people, num_rooms)
         
-        # Ordina per punteggio decrescente
-        all_possible_assignments.sort(reverse=True, key=lambda x: x[0])
+        print(f"Target per persona: {[(p.name, target) for p, target in person_targets.items()]}")
+        print(f"Situazione attuale: {[(p.name, p.total_assignments) for p in available_people]}")
         
-        # Algoritmo bilanciato: distribuzione equa tra persone e giorni
-        final_assignment = {}
-        person_assignments_count = {person: 0 for person in people}
-        used_days = set()
+        # Ottieni tutti i giorni disponibili della settimana ordinati cronologicamente
+        all_available_dates = set()
+        for person in available_people:
+            weekly = person.get_weekly_assignment(week_number)
+            if weekly:
+                person_days = person.get_available_days_in_week(weekly.week_start, weekly.week_end)
+                all_available_dates.update(person_days)
         
-        # Prima fase: distribuzione primaria (una assegnazione per persona disponibile)
-        available_people = [p for p in people if person_available_days[p]]
-        target_per_person = max(1, len(room_order) // len(available_people)) if available_people else 1
+        chronological_dates = sorted(list(all_available_dates))
+        print(f"Giorni disponibili: {[d.strftime('%a %d') for d in chronological_dates]}")
         
-        for score, room, person, day_offset, date, weekday in all_possible_assignments:
-            # Controlli conflitti base
-            if room in final_assignment:
-                continue  # Stanza già assegnata
-            if day_offset in used_days:
-                continue  # Giorno già occupato
+        # Contatori per vincoli
+        person_assignments_count = {person: 0 for person in available_people}
+        rooms_assigned = set()
+        
+        # Algoritmo principale: itera cronologicamente sui giorni
+        for current_date in chronological_dates:
+            print(f"\n  Assegnazioni per {current_date.strftime('%a %d/%m')}:")
             
-            # Priorità a persone con meno assegnazioni (bilanciamento)
-            if person_assignments_count[person] < target_per_person:
-                final_assignment[room] = (person, (day_offset, date, weekday))
-                person_assignments_count[person] += 1
-                used_days.add(day_offset)
+            # Trova stanze ancora da assegnare
+            unassigned_rooms = [room for room in self.rooms if room not in rooms_assigned]
+            if not unassigned_rooms:
+                print("    Tutte le stanze già assegnate")
+                break
+            
+            # Trova persone disponibili oggi che non hanno già un'assegnazione oggi
+            available_today = []
+            for person in available_people:
+                weekly = person.get_weekly_assignment(week_number)
+                if (weekly and 
+                    person.is_available_on_date(current_date) and 
+                    not person.has_used_day_in_week(current_date, week_number) and
+                    person_assignments_count[person] < person_targets[person]):
+                    available_today.append(person)
+            
+            if not available_today:
+                print("    Nessuna persona disponibile oggi")
+                continue
+            
+            print(f"    Persone disponibili oggi: {[p.name for p in available_today]}")
+            
+            # Calcola quante assegnazioni fare oggi (distribuisci equamente sui giorni)
+            remaining_rooms = len(unassigned_rooms)
+            remaining_dates = len([d for d in chronological_dates if d >= current_date])
+            max_assignments_today = min(3, max(1, remaining_rooms // max(1, remaining_dates)))
+            
+            assignments_made_today = 0
+            
+            # Ordina le stanze per priorità di rotazione
+            prioritized_rooms = self._prioritize_rooms_for_rotation(unassigned_rooms, available_today)
+            
+            for room in prioritized_rooms:
+                if assignments_made_today >= max_assignments_today:
+                    break
+                
+                if room in rooms_assigned:
+                    continue
+                
+                # Trova la persona migliore per questa stanza
+                best_person = self._find_best_person_for_room(
+                    room, available_today, week_number, excluded_first_week, current_date
+                )
+                
+                if best_person:
+                    # Crea e aggiungi l'assegnazione
+                    assignment = RoomAssignment(
+                        room=room,
+                        person=best_person,
+                        assignment_date=current_date,
+                        week_number=week_number
+                    )
+                    
+                    scheduling_state.add_assignment(assignment)
+                    rooms_assigned.add(room)
+                    person_assignments_count[best_person] += 1
+                    assignments_made_today += 1
+                    
+                    print(f"    ASSEGNATO: {room} -> {best_person.name}")
+                    
+                    # Rimuovi persona se ha raggiunto target
+                    if person_assignments_count[best_person] >= person_targets[best_person]:
+                        if best_person in available_today:
+                            available_today.remove(best_person)
+                
+                else:
+                    print(f"    Nessun candidato per {room}")
         
-        # Seconda fase: assegna stanze rimanenti con strategia di distribuzione giorni
-        unassigned_rooms = [room for room in room_order if room not in final_assignment]
+        # Gestisci stanze rimaste non assegnate (fallback)
+        unassigned_rooms = [room for room in self.rooms if room not in rooms_assigned]
         if unassigned_rooms:
-            # Traccia giorni usati per persona per favorire distribuzione
-            person_used_days = {}
-            for room, (person, (day_offset, date, weekday)) in final_assignment.items():
-                if person not in person_used_days:
-                    person_used_days[person] = set()
-                person_used_days[person].add(day_offset)
+            print(f"\n  FALLBACK per stanze non assegnate: {unassigned_rooms}")
+            self._assign_remaining_rooms_fallback(
+                unassigned_rooms, available_people, week_number, scheduling_state, chronological_dates
+            )
+        
+        print(f"\nAssegnazioni completate per settimana {week_number}")
+
+    def _calculate_balanced_targets(self, available_people: List[Person], num_rooms: int) -> Dict[Person, int]:
+        """
+        Calcola i target per settimana bilanciando il carico di lavoro totale accumulato.
+        """
+        if not available_people:
+            return {}
+        
+        # Calcola il carico di lavoro attuale per persona
+        total_assignments = [person.total_assignments for person in available_people]
+        min_assignments = min(total_assignments) if total_assignments else 0
+        max_assignments = max(total_assignments) if total_assignments else 0
+        
+        print(f"  Carico attuale - Min: {min_assignments}, Max: {max_assignments}")
+        
+        # Calcola target base equo per questa settimana
+        base_per_person = num_rooms // len(available_people)
+        extra_rooms = num_rooms % len(available_people)
+        
+        person_targets = {}
+        
+        # Strategia: dai più lavoro a chi ha fatto meno finora
+        for i, person in enumerate(available_people):
+            current_load = person.total_assignments
             
-            for room in unassigned_rooms[:]:
-                best_assignment = None
-                best_score = -1
+            # Target base
+            base_target = base_per_person
+            
+            # Bonus per chi è sotto la media
+            if max_assignments > min_assignments:  # C'è squilibrio
+                load_difference = max_assignments - current_load
                 
-                # Trova la migliore assegnazione bilanciando carico E distribuzione giorni
-                for score, r, person, day_offset, date, weekday in all_possible_assignments:
-                    if r != room:
-                        continue
-                    if room in final_assignment:
-                        continue
-                    
-                    # Calcola punteggio complessivo per questa assegnazione
-                    assignment_score = 0
-                    
-                    # Fattore 1: Preferisci persone con meno assegnazioni totali (50%)
-                    max_assignments = max(person_assignments_count.values()) if person_assignments_count.values() else 1
-                    load_factor = ALGORITMO_CONFIG['PESO_BILANCIAMENTO'] * 100 * (max_assignments - person_assignments_count[person]) / max(max_assignments, 1)
-                    assignment_score += load_factor
-                    
-                    # Fattore 2: Preferisci giorni non ancora usati da questa persona (30%)
-                    if person not in person_used_days:
-                        person_used_days[person] = set()
-                    if day_offset not in person_used_days[person]:
-                        assignment_score += ALGORITMO_CONFIG['PESO_DISTRIBUZIONE_GIORNI'] * 100  # Bonus per nuovo giorno
-                    else:
-                        assignment_score += 5   # Penalità per giorno già usato
-                    
-                    # Fattore 3: Punteggio base dell'assegnazione (20%)
-                    assignment_score += score * ALGORITMO_CONFIG['PESO_QUALITA_ASSEGNAZIONE']
-                    
-                    # Seleziona la migliore opzione
-                    if assignment_score > best_score:
-                        best_score = assignment_score
-                        best_assignment = (person, day_offset, date, weekday)
+                # Chi ha il carico minore ottiene le stanze extra
+                if current_load == min_assignments and extra_rooms > 0:
+                    bonus_rooms = min(extra_rooms, load_difference + 1)
+                    base_target += bonus_rooms
+                    extra_rooms -= bonus_rooms
+                elif current_load < max_assignments and extra_rooms > 0:
+                    # Chi è sotto il massimo può comunque ottenere stanze extra
+                    bonus_rooms = min(1, extra_rooms)
+                    base_target += bonus_rooms
+                    extra_rooms -= bonus_rooms
+            else:
+                # Tutti hanno lo stesso carico, distribuisci normalmente
+                if i < extra_rooms:
+                    base_target += 1
+            
+            person_targets[person] = max(0, base_target)
+        
+        # Debug
+        for person in available_people:
+            target = person_targets[person]
+            current = person.total_assignments
+            print(f"    {person.name}: carico {current} -> target settimana {target}")
+        
+        return person_targets
+
+    def _prioritize_rooms_for_rotation(self, rooms: List[str], available_people: List[Person]) -> List[str]:
+        """
+        Ordina le stanze per priorità di rotazione - prima quelle con maggiore disparità.
+        """
+        room_priorities = []
+        
+        for room in rooms:
+            # Calcola la distribuzione di questa stanza tra le persone disponibili
+            room_counts = []
+            for person in available_people:
+                room_counts.append(person.get_room_count(room))
+            
+            if not room_counts:
+                priority_score = 0
+            else:
+                # Calcola disparità: differenza tra max e min
+                min_count = min(room_counts)
+                max_count = max(room_counts)
+                disparity = max_count - min_count
                 
-                # Assegna la migliore opzione trovata
-                if best_assignment:
-                    person, day_offset, date, weekday = best_assignment
-                    final_assignment[room] = (person, (day_offset, date, weekday))
-                    person_assignments_count[person] += 1
-                    if person not in person_used_days:
-                        person_used_days[person] = set()
-                    person_used_days[person].add(day_offset)
-                    unassigned_rooms.remove(room)
+                # Più alta la disparità, più alta la priorità
+                priority_score = disparity * 100
+                
+                # Bonus per stanze mai fatte da qualcuno
+                never_done_count = room_counts.count(0)
+                priority_score += never_done_count * 50
+                
+                # Bonus per stanze generalmente poco assegnate
+                avg_count = sum(room_counts) / len(room_counts)
+                if avg_count < 1.0:
+                    priority_score += 25
+            
+            room_priorities.append((priority_score, room))
         
-        return final_assignment
-    
-    def _calculate_assignment_score(self, person, day_offset, room, person_available_days, day_priorities):
-        """Calcola il punteggio per una singola assegnazione."""
-        score = 0
+        # Ordina per priorità decrescente
+        room_priorities.sort(reverse=True, key=lambda x: x[0])
         
-        # Fattore 1: Preferisci persone più vincolate (meno giorni disponibili)
-        total_days = len(person_available_days[person])
-        if total_days <= 2:
-            score += 100  # Persona molto vincolata: massima priorità
-        elif total_days <= 4:
-            score += 50   # Persona moderatamente vincolata
+        prioritized_rooms = [room for score, room in room_priorities]
+        print(f"    Ordine stanze per rotazione: {prioritized_rooms}")
+        
+        return prioritized_rooms
+
+    def _find_best_person_for_room(self, room: str, available_people: List[Person], 
+                                  week_number: int, excluded_first_week: Dict[str, List[str]], 
+                                  assignment_date: date) -> Optional[Person]:
+        """
+        Trova la persona migliore per una stanza specifica basandosi sulla rotazione.
+        """
+        candidates = []
+        
+        for person in available_people:
+            # Controlla esclusioni prima settimana
+            if (week_number == 1 and 
+                person.name in excluded_first_week and 
+                room in excluded_first_week[person.name]):
+                continue
+            
+            # Calcola punteggio per questa persona-stanza
+            score = self._calculate_person_room_score_with_context(person, room, assignment_date, available_people)
+            candidates.append((score, person))
+        
+        if not candidates:
+            return None
+        
+        # Ordina per punteggio decrescente e prendi il migliore
+        candidates.sort(reverse=True, key=lambda x: x[0])
+        best_score, best_person = candidates[0]
+        
+        print(f"      {room} candidati: {[(f'{p.name}:{s:.0f}') for s, p in candidates[:3]]}")
+        
+        return best_person
+
+    def _calculate_person_room_score(self, person: Person, room: str, assignment_date: date) -> float:
+        """
+        Calcola il punteggio per assegnare una specifica stanza a una persona.
+        """
+        score = 0.0
+        
+        # 1. ROTAZIONE STANZA SPECIFICA (peso maggiore)
+        room_count = person.get_room_count(room)
+        
+        # Forte bonus per chi non ha mai pulito questa stanza
+        if room_count == 0:
+            score += 300  # Aumentato per dare più priorità alla rotazione
+        elif room_count == 1:
+            score += 150
+        elif room_count == 2:
+            score += 75
         else:
-            score += 10   # Persona con molti giorni disponibili
+            score -= (room_count - 2) * 50  # penalità più alta per ripetizioni
         
-        # Fattore 2: Preferisci giorni infrasettimanali se configurato
-        if ALGORITMO_CONFIG['EVITA_WEEKEND']:
-            if day_offset < 5:  # Lunedì-Venerdì
-                score += 30
-            else:  # Sabato-Domenica
-                score += 5
+        # 2. BILANCIAMENTO CARICO TOTALE - PESO MOLTO ALTO
+        total_assignments = person.total_assignments
         
-        # Fattore 3: Distribuzione uniforme nella settimana
-        # Preferisci giorni centrali (Mar-Gio) per distribuzione ottimale
-        day_distribution_bonus = {
-            0: 20,  # Lunedì: buono per inizio settimana
-            1: 25,  # Martedì: ottimo
-            2: 30,  # Mercoledì: perfetto (centro settimana)
-            3: 25,  # Giovedì: ottimo
-            4: 20,  # Venerdì: buono per fine settimana
-            5: 10,  # Sabato: evita se possibile
-            6: 5    # Domenica: ultimo resort
-        }
-        score += day_distribution_bonus.get(day_offset, 0)
+        # Calcola il carico minimo tra tutte le persone (approssimazione)
+        # Questo è critico per evitare che una persona prenda tutto il carico
+        min_possible_load = 0  # In teoria dovremmo passare tutte le persone, ma per ora approssimiamo
         
-        # Fattore 4: Randomizzazione per evitare sempre le stesse scelte
-        score += random.randint(1, 10)
+        # Forte bonus per chi ha carico basso
+        if total_assignments <= 2:
+            score += 500  # Priorità massima per chi ha fatto poco
+        elif total_assignments <= 4:
+            score += 300
+        elif total_assignments <= 6:
+            score += 150
+        elif total_assignments <= 8:
+            score += 50
+        else:
+            score -= (total_assignments - 8) * 100  # Forte penalità per sovraccarico
+        
+        # 3. PRIORITÀ GIORNI FERIALI
+        if assignment_date.weekday() < 5:  # lun-ven
+            score += 30
+        else:  # weekend
+            score += 10
+        
+        # 4. DISTRIBUZIONE TEMPORALE
+        day_bonuses = {0: 15, 1: 12, 2: 10, 3: 8, 4: 5, 5: 3, 6: 1}  # lun-dom
+        score += day_bonuses.get(assignment_date.weekday(), 0)
         
         return score
+
+    def _calculate_person_room_score_with_context(self, person: Person, room: str, assignment_date: date, 
+                                                 all_available_people: List[Person]) -> float:
+        """
+        Calcola il punteggio per una persona-stanza considerando il contesto di tutte le persone disponibili.
+        """
+        score = 0.0
+        
+        # 1. ROTAZIONE STANZA SPECIFICA (peso alto)
+        room_count = person.get_room_count(room)
+        
+        # Calcola il minimo e massimo per questa stanza tra tutte le persone disponibili
+        room_counts_all = [p.get_room_count(room) for p in all_available_people]
+        min_room_count = min(room_counts_all)
+        max_room_count = max(room_counts_all)
+        
+        # Forte priorità per chi ha il minimo per questa stanza
+        if room_count == min_room_count:
+            score += 400  # Priorità massima
+        elif room_count == min_room_count + 1:
+            score += 200
+        else:
+            # Penalità crescente per chi ha fatto di più
+            score -= (room_count - min_room_count) * 100
+        
+        # 2. BILANCIAMENTO CARICO TOTALE - PESO CRITICO
+        total_assignments = person.total_assignments
+        
+        # Calcola min/max carico tra persone disponibili
+        total_loads = [p.total_assignments for p in all_available_people]
+        min_load = min(total_loads)
+        max_load = max(total_loads)
+        
+        # Priorità assoluta per chi ha il carico minimo
+        if total_assignments == min_load:
+            score += 600  # Priorità massima per bilanciamento
+        elif total_assignments == min_load + 1:
+            score += 400
+        elif total_assignments == min_load + 2:
+            score += 200
+        else:
+            # Forte penalità per chi è sopra il minimo
+            load_excess = total_assignments - min_load
+            score -= load_excess * 150
+        
+        # 3. PRIORITÀ GIORNI FERIALI
+        if assignment_date.weekday() < 5:  # lun-ven
+            score += 30
+        else:  # weekend
+            score += 10
+        
+        # 4. DISTRIBUZIONE TEMPORALE
+        day_bonuses = {0: 15, 1: 12, 2: 10, 3: 8, 4: 5, 5: 3, 6: 1}
+        score += day_bonuses.get(assignment_date.weekday(), 0)
+        
+        return score
+
+    def _assign_remaining_rooms_fallback(self, remaining_rooms: List[str], 
+                                       available_people: List[Person], 
+                                       week_number: int, 
+                                       scheduling_state: SchedulingState,
+                                       available_dates: List[date]):
+        """
+        Assegna le stanze rimanenti con algoritmo fallback.
+        """
+        for room in remaining_rooms:
+            best_assignment = None
+            best_score = -1
+            
+            # Prova ogni combinazione persona-data
+            for person in available_people:
+                for assignment_date in available_dates:
+                    if (person.is_available_on_date(assignment_date) and 
+                        not person.has_used_day_in_week(assignment_date, week_number)):
+                        
+                        score = self._calculate_person_room_score_with_context(person, room, assignment_date, available_people)
+                        if score > best_score:
+                            best_score = score
+                            best_assignment = (person, assignment_date)
+            
+            # Crea assegnazione fallback
+            if best_assignment:
+                person, assignment_date = best_assignment
+                assignment = RoomAssignment(
+                    room=room,
+                    person=person,
+                    assignment_date=assignment_date,
+                    week_number=week_number
+                )
+                scheduling_state.add_assignment(assignment)
+                print(f"  FALLBACK: {room} -> {person.name} il {assignment_date.strftime('%a %d')}")

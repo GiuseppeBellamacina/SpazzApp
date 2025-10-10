@@ -3,10 +3,10 @@ Componenti dell'interfaccia utente Streamlit.
 """
 
 import streamlit as st
-from datetime import datetime, timedelta
-from typing import List, Dict, Tuple, Optional
+from datetime import datetime
+from typing import List, Dict, Tuple
 
-from ..utils.constants import MESI_ITALIANI, STANZE_DEFAULT, PERSONE_DEFAULT
+from ..utils.constants import MESI_ITALIANI, PERSONE_DEFAULT
 
 
 class SidebarManager:
