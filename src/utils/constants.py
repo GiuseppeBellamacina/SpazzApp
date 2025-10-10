@@ -12,7 +12,7 @@ MESI_ITALIANI = [
 ]
 
 # Stanze di default
-STANZE_DEFAULT = ['Bagno', 'Cucina', 'Soggiorno', 'Camera']
+STANZE_DEFAULT = ['Bagno', 'Cucina', 'Veranda', 'Corridoio']
 
 # Persone di default
 PERSONE_DEFAULT = ['Anna', 'Marco', 'Luca', 'Sofia']
