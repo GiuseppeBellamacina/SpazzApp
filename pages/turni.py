@@ -188,7 +188,8 @@ def _generate_and_display_schedule(config: dict, scheduler, italian_months: dict
             config['month'], 
             config['absences'],
             config['excluded_first_week'],
-            config['priority_first_week']
+            config['priority_first_week'],
+            config.get('room_groups_config')
         )
     
     # Salva nel session_state per persistenza

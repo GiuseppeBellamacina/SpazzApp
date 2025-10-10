@@ -17,6 +17,18 @@ STANZE_DEFAULT = ['Bagno', 'Cucina', 'Veranda', 'Corridoio']
 # Persone di default
 PERSONE_DEFAULT = ['Anna', 'Marco', 'Luca', 'Sofia']
 
+# Configurazione accorpamento stanze per 3 persone
+ACCORPAMENTO_DEFAULT = {
+    'abilitato': True,
+    'gruppi': [
+        {
+            'nome': 'Corridoio + Veranda',
+            'stanze': ['Corridoio', 'Veranda'],
+            'descrizione': 'Zone di passaggio e veranda unificate'
+        }
+    ]
+}
+
 # Configurazione PNG
 PNG_CONFIG = {
     'DPI': 300,

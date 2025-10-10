@@ -119,9 +119,29 @@ class RoomAssignment:
     person: Person
     assignment_date: date
     week_number: int
+    is_grouped: bool = False  # Indica se fa parte di un gruppo accorpato
+    group_name: Optional[str] = None  # Nome del gruppo se accorpato
     
     def __str__(self):
+        if self.is_grouped and self.group_name:
+            return f"{self.room} ({self.group_name}) -> {self.person.name} ({self.assignment_date.strftime('%a %d/%m')})"
         return f"{self.room} -> {self.person.name} ({self.assignment_date.strftime('%a %d/%m')})"
+
+
+@dataclass
+class RoomGroup:
+    """Rappresenta un gruppo di stanze da accorpare."""
+    nome: str
+    stanze: List[str]
+    descrizione: str = ""
+    
+    def contains_room(self, room: str) -> bool:
+        """Verifica se una stanza è in questo gruppo."""
+        return room in self.stanze
+    
+    def get_other_rooms(self, room: str) -> List[str]:
+        """Ritorna le altre stanze del gruppo escludendo quella specificata."""
+        return [r for r in self.stanze if r != room]
 
 
 class SchedulingState:
