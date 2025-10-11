@@ -15,7 +15,7 @@ MESI_ITALIANI = [
 STANZE_DEFAULT = ['Bagno', 'Cucina', 'Veranda', 'Corridoio']
 
 # Persone di default
-PERSONE_DEFAULT = ['Anna', 'Marco', 'Luca', 'Sofia']
+PERSONE_DEFAULT = ['Giorgia', 'Bea', 'Morena', 'Reby']
 
 # Configurazione accorpamento stanze per 3 persone
 ACCORPAMENTO_DEFAULT = {
